@@ -157,8 +157,8 @@ const text = `
 ${comment}
 `;
 
-const TOKEN = "ВСТАВЬ_СЮДА_ТОКЕН_БОТА";
-const CHAT_ID = "ВСТАВЬ_CHAT_ID";
+const TOKEN = "8587978564:AAEq6QsMJ2UkQp2gwqHtmuEhnitGKLzglfc";
+const CHAT_ID = "8822621447";
 
 await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{
 method:"POST",
