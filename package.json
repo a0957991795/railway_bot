@@ -1,15 +1,13 @@
 {
-  "name": "railway-bot",
+  "name": "railway-telegram-ai-bot",
   "version": "1.0.0",
-  "description": "AI Telegram bot",
+  "description": "AI Telegram bot for cleaning company on Railway",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "axios": "^1.6.8",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "node-telegram-bot-api": "^0.65.1"
+    "openai": "^4.104.0"
   }
 }
