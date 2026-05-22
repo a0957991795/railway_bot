@@ -1,25 +1,40 @@
-// index.js
-
 const express = require("express");
 const TelegramBot = require("node-telegram-bot-api");
 const OpenAI = require("openai");
 
 const app = express();
 
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN);
+app.use(express.json());
+
+const bot = new TelegramBot(
+  process.env.TELEGRAM_BOT_TOKEN,
+  { polling: true }
+);
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-app.use(express.json());
+const MINI_APP_URL =
+  "https://mmmm.a0957991795.workers.dev";
 
-const MINI_APP_URL = "https://mmmm.a0957991795.workers.dev";
+const MANAGER_CHAT_ID =
+  process.env.MANAGER_CHAT_ID;
 
-const managerChatId = process.env.MANAGER_CHAT_ID;
-const sheetsWebhook = process.env.SHEETS_WEBHOOK_URL;
+function detectLanguage(text = "") {
 
-function keyboard(lang = "ua") {
+  const ru =
+    /[ыэёъ]/i.test(text);
+
+  if (ru) {
+    return "ru";
+  }
+
+  return "ua";
+}
+
+function getKeyboard(lang = "ua") {
+
   const text =
     lang === "ru"
       ? "🧹 Рассчитать стоимость и оставить заявку"
@@ -43,98 +58,11 @@ function keyboard(lang = "ua") {
   };
 }
 
-function detectLanguage(text = "") {
-  const ruLetters = /[ыэъё]/i.test(text);
-
-  if (ruLetters) return "ru";
-
-  return "ua";
-}
-
-async function askAI(message, lang = "ua") {
-  try {
-    const systemPrompt =
-      lang === "ru"
-        ? `
-Ты AI-консультант клининговой компании Premium Cleaning.
-
-Отвечай ТОЛЬКО на русском языке.
-
-Услуги:
-- генеральная уборка;
-- поддерживающая уборка;
-- уборка после ремонта;
-- мойка окон;
-- химчистка мебели;
-- уборка кухни;
-- чистка духовки;
-- чистка холодильника.
-
-Твоя задача:
-- консультировать клиента;
-- помогать выбрать услугу;
-- предлагать нажать кнопку:
-"🧹 Рассчитать стоимость и оставить заявку"
-
-Важно:
-- стоимость в калькуляторе примерная;
-- точную цену подтверждает менеджер после уточнения деталей.
-`
-        : `
-Ти AI-консультант клінінгової компанії Premium Cleaning.
-
-Відповідай ТІЛЬКИ українською мовою.
-
-Послуги:
-- генеральне прибирання;
-- підтримуюче прибирання;
-- прибирання після ремонту;
-- миття вікон;
-- хімчистка меблів;
-- чистка кухні;
-- чистка духовки;
-- чистка холодильника.
-
-Твоє завдання:
-- консультувати клієнта;
-- допомагати вибрати послугу;
-- пропонувати натиснути кнопку:
-"🧹 Розрахувати вартість та залишити заявку"
-
-Важливо:
-- вартість у калькуляторі приблизна;
-- точну ціну підтверджує менеджер після уточнення деталей.
-`;
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.5,
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
-        {
-          role: "user",
-          content: message,
-        },
-      ],
-    });
-
-    return completion.choices[0].message.content;
-  } catch (e) {
-    console.log(e);
-
-    return lang === "ru"
-      ? "Временная ошибка. Попробуйте позже."
-      : "Тимчасова помилка. Спробуйте пізніше.";
-  }
-}
-
 bot.onText(/\/start/, async (msg) => {
+
   const chatId = msg.chat.id;
 
-  const welcomeText = `
+  const text = `
 Вітаємо! 👋
 
 Я AI-консультант Premium Cleaning.
@@ -152,66 +80,77 @@ bot.onText(/\/start/, async (msg) => {
 Точну ціну підтверджує менеджер після уточнення деталей.
 `;
 
-  bot.sendMessage(chatId, welcomeText, keyboard("ua"));
+  await bot.sendMessage(
+    chatId,
+    text,
+    getKeyboard("ua")
+  );
 });
 
 bot.on("message", async (msg) => {
-  try {
-    if (!msg.text && !msg.web_app_data) return;
 
-    if (msg.text === "/start") return;
+  try {
+
+    if (msg.text === "/start") {
+      return;
+    }
 
     if (msg.web_app_data) {
-      const data = JSON.parse(msg.web_app_data.data);
 
-      const lang = data.lang || "ua";
+      const data =
+        JSON.parse(msg.web_app_data.data);
 
       const managerText = `
-🔥 Нова заявка з Mini App
+🔥 НОВА ЗАЯВКА
 
-🧹 Послуга: ${data.service}
-📐 Площа: ${data.area || "-"} м²
+🧹 Послуга:
+${data.service}
+
+📐 Площа:
+${data.area} м²
 
 ➕ Додаткові послуги:
-${data.extras.length ? data.extras.join(", ") : "Немає"}
+${data.extras.length
+  ? data.extras.join(", ")
+  : "Немає"}
 
-💰 Орієнтовна ціна: ${data.price} грн
+💰 Приблизна ціна:
+${data.price} грн
 
-👤 Ім'я: ${data.name}
-📞 Телефон: ${data.phone}
-📍 Адреса: ${data.address}
+👤 Ім'я:
+${data.name}
 
-📅 Дата: ${data.date}
-🕒 Час: ${data.time}
+📞 Телефон:
+${data.phone}
+
+📍 Адреса:
+${data.address}
+
+📅 Дата:
+${data.date}
+
+🕒 Час:
+${data.time}
 
 💬 Коментар:
 ${data.comment || "-"}
 
-🌐 Мова клієнта: ${lang}
-
 ⚠️ Ціна приблизна.
-Точну вартість підтверджує менеджер після уточнення деталей.
+Точну вартість підтверджує менеджер.
 `;
 
-      if (managerChatId) {
-        await bot.sendMessage(managerChatId, managerText);
+      if (MANAGER_CHAT_ID) {
+
+        await bot.sendMessage(
+          MANAGER_CHAT_ID,
+          managerText
+        );
       }
 
-      if (sheetsWebhook) {
-        try {
-          await fetch(sheetsWebhook, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(data),
-          });
-        } catch (e) {
-          console.log("Sheets error", e);
-        }
-      }
+      const lang =
+        data.lang || "ua";
 
-      const clientMessage =
+      const successText =
         lang === "ru"
           ? `
 ✅ Спасибо! Ваша заявка отправлена менеджеру.
@@ -219,7 +158,8 @@ ${data.comment || "-"}
 Скоро с вами свяжутся.
 
 ⚠️ Стоимость в калькуляторе примерная.
-Точную цену подтверждает менеджер после уточнения деталей или оценки объекта.
+Точную цену подтверждает менеджер
+после уточнения деталей или оценки объекта.
 `
           : `
 ✅ Дякуємо! Вашу заявку відправлено менеджеру.
@@ -227,37 +167,100 @@ ${data.comment || "-"}
 Незабаром з вами зв'яжуться.
 
 ⚠️ Вартість у калькуляторі приблизна.
-Точну ціну підтверджує менеджер після уточнення деталей або оцінки об'єкта.
+Точну ціну підтверджує менеджер
+після уточнення деталей або оцінки об'єкта.
 `;
 
       await bot.sendMessage(
         msg.chat.id,
-        clientMessage,
-        keyboard(lang)
+        successText,
+        getKeyboard(lang)
       );
 
       return;
     }
 
-    const lang = detectLanguage(msg.text);
+    if (!msg.text) {
+      return;
+    }
 
-    const reply = await askAI(msg.text, lang);
+    const lang =
+      detectLanguage(msg.text);
 
-    bot.sendMessage(
+    const systemPrompt =
+      lang === "ru"
+        ? `
+Ты AI-консультант клининговой компании Premium Cleaning.
+
+Отвечай только на русском языке.
+
+Помогай клиенту выбрать услуги.
+
+Всегда отвечай кратко и понятно.
+
+Напоминай:
+стоимость примерная,
+точную цену подтверждает менеджер.
+`
+        : `
+Ти AI-консультант клінінгової компанії Premium Cleaning.
+
+Відповідай лише українською мовою.
+
+Допомагай клієнту обрати послуги.
+
+Відповідай коротко та зрозуміло.
+
+Нагадуй:
+вартість приблизна,
+точну ціну підтверджує менеджер.
+`;
+
+    const completion =
+      await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        temperature: 0.5,
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          {
+            role: "user",
+            content: msg.text,
+          },
+        ],
+      });
+
+    const answer =
+      completion.choices[0]
+      .message.content;
+
+    await bot.sendMessage(
       msg.chat.id,
-      reply,
-      keyboard(lang)
+      answer,
+      getKeyboard(lang)
     );
 
-  } catch (e) {
-    console.log(e);
+  } catch (error) {
+
+    console.log(error);
+
+    await bot.sendMessage(
+      msg.chat.id,
+      "Ошибка сервера."
+    );
   }
 });
 
 app.get("/", (req, res) => {
+
   res.send("Bot working");
 });
 
-app.listen(process.env.PORT || 3000, () => {
-  console.log("Server started");
-});
+app.listen(
+  process.env.PORT || 3000,
+  () => {
+    console.log("Server started");
+  }
+);
