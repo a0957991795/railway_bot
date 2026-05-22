@@ -8,6 +8,10 @@ const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
 
 let offset = 0;
 
+// =====================
+// MINI APP KEYBOARD
+// =====================
+
 function getMiniAppKeyboard() {
   return {
     keyboard: [
@@ -25,6 +29,10 @@ function getMiniAppKeyboard() {
   };
 }
 
+// =====================
+// SEND TELEGRAM MESSAGE
+// =====================
+
 async function sendMessage(chatId, text, extra = {}) {
   try {
     const response = await fetch(`${TELEGRAM_API}/sendMessage`, {
@@ -41,7 +49,12 @@ async function sendMessage(chatId, text, extra = {}) {
     });
 
     const data = await response.json();
+
     console.log("sendMessage response:", data);
+
+    if (!data.ok) {
+      console.error("Telegram sendMessage error:", data);
+    }
 
     return data;
   } catch (error) {
@@ -49,6 +62,10 @@ async function sendMessage(chatId, text, extra = {}) {
     return null;
   }
 }
+
+// =====================
+// SAVE LEAD TO GOOGLE SHEETS
+// =====================
 
 async function saveToGoogleSheets(order) {
   if (!SHEETS_WEBHOOK_URL) {
@@ -74,6 +91,10 @@ async function saveToGoogleSheets(order) {
   }
 }
 
+// =====================
+// MANAGER MESSAGE
+// =====================
+
 function buildManagerMessage(order) {
   return `
 🔥 <b>Новая заявка из Mini App</b>
@@ -89,11 +110,37 @@ function buildManagerMessage(order) {
 🕒 <b>Время:</b> ${order.time || "не указано"}
 💬 <b>Комментарий:</b> ${order.comment || "нет"}
 
-⚠️ <b>Важно:</b> ${order.note || "Стоимость примерная. Точная цена рассчитывается менеджером после уточнения деталей и осмотра объекта."}
+⚠️ <b>Важно:</b> стоимость в приложении примерная/оценочная. Точная цена рассчитывается менеджером после уточнения деталей и/или оценки объекта на месте.
 
 Источник: Telegram Mini App
 `;
 }
+
+// =====================
+// CLIENT CONFIRMATION MESSAGE
+// =====================
+
+function buildClientConfirmationMessage(order) {
+  return `
+✅ <b>Спасибо! Ваша заявка принята.</b>
+
+Менеджер скоро свяжется с вами для уточнения деталей.
+
+🧹 <b>Услуга:</b> ${order.service || "не указано"}
+💰 <b>Примерная стоимость:</b> ${order.price || "не указано"} грн
+
+⚠️ <b>Важно:</b>
+Стоимость в приложении является примерной/оценочной.
+
+Точная цена рассчитывается менеджером после уточнения деталей и/или оценки объекта на месте.
+
+Спасибо за обращение в Premium Cleaning 👋
+`;
+}
+
+// =====================
+// AI RESPONSE
+// =====================
 
 async function getAIResponse(userMessage) {
   if (!OPENAI_API_KEY) {
@@ -120,11 +167,27 @@ async function getAIResponse(userMessage) {
 - помогать выбрать услугу;
 - если клиент хочет цену или заявку — направляй его нажать кнопку "🧹 Рассчитать стоимость и оставить заявку".
 
-Важно:
-- стоимость в Mini App примерная;
-- точную стоимость подтверждает менеджер после уточнения деталей и осмотра объекта;
+Услуги:
+- генеральная уборка;
+- уборка после ремонта;
+- поддерживающая уборка;
+- химчистка мебели;
+- мойка окон;
+- уборка балкона;
+- глубокая уборка кухни.
+
+Очень важное правило по цене:
+- цена в Mini App является примерной/оценочной;
+- точную цену подтверждает менеджер после уточнения деталей;
+- финальная оценка может происходить на месте, по состоянию объекта и объёму работ;
 - не обещай фиксированную цену;
-- отвечай коротко, понятно и вежливо.
+- не говори, что цена окончательная.
+
+Стиль:
+- коротко;
+- вежливо;
+- понятно;
+- без давления.
 `,
           },
           {
@@ -150,6 +213,10 @@ async function getAIResponse(userMessage) {
   }
 }
 
+// =====================
+// START MESSAGE
+// =====================
+
 async function sendStartMessage(chatId) {
   const text = `
 Здравствуйте! 👋
@@ -165,13 +232,17 @@ async function sendStartMessage(chatId) {
 
 🧹 <b>Рассчитать стоимость и оставить заявку</b>
 
-⚠️ Стоимость в калькуляторе примерная. Точную цену подтверждает менеджер после уточнения деталей.
+⚠️ Стоимость в калькуляторе примерная. Точную цену подтверждает менеджер после уточнения деталей и/или оценки объекта на месте.
 `;
 
   await sendMessage(chatId, text, {
     reply_markup: getMiniAppKeyboard(),
   });
 }
+
+// =====================
+// HANDLE MINI APP ORDER
+// =====================
 
 async function handleMiniAppOrder(message) {
   try {
@@ -186,7 +257,23 @@ async function handleMiniAppOrder(message) {
 
     const order = JSON.parse(rawData);
 
-    const managerText = buildManagerMessage(order);
+    const normalizedOrder = {
+      name: order.name || "",
+      phone: order.phone || "",
+      service: order.service || "",
+      area: order.area || "",
+      extras: Array.isArray(order.extras) ? order.extras : [],
+      address: order.address || "",
+      time: order.time || "",
+      comment: order.comment || "",
+      price: order.price || "",
+      note:
+        "Стоимость примерная/оценочная. Точная цена рассчитывается менеджером после уточнения деталей и/или оценки объекта на месте.",
+      source: "Telegram Mini App",
+      status: "Новая",
+    };
+
+    const managerText = buildManagerMessage(normalizedOrder);
 
     if (!MANAGER_CHAT_ID) {
       console.error("MANAGER_CHAT_ID is missing");
@@ -195,21 +282,29 @@ async function handleMiniAppOrder(message) {
       console.log("Manager send result:", managerResult);
     }
 
-    await saveToGoogleSheets(order);
+    await saveToGoogleSheets(normalizedOrder);
 
-    await sendMessage(
-      message.chat.id,
-      "✅ Спасибо! Ваша заявка отправлена менеджеру. Скоро с вами свяжутся."
-    );
+    const clientText = buildClientConfirmationMessage(normalizedOrder);
+
+    await sendMessage(message.chat.id, clientText, {
+      reply_markup: getMiniAppKeyboard(),
+    });
   } catch (error) {
     console.error("Mini App order error:", error.message);
 
     await sendMessage(
       message.chat.id,
-      "❌ Не удалось обработать заявку. Попробуйте отправить ещё раз."
+      "❌ Не удалось обработать заявку. Попробуйте отправить ещё раз.",
+      {
+        reply_markup: getMiniAppKeyboard(),
+      }
     );
   }
 }
+
+// =====================
+// GET UPDATES
+// =====================
 
 async function getUpdates() {
   try {
@@ -231,6 +326,10 @@ async function getUpdates() {
   }
 }
 
+// =====================
+// MAIN LOOP
+// =====================
+
 async function startBot() {
   console.log("Bot started");
   console.log("MANAGER_CHAT_ID:", MANAGER_CHAT_ID);
@@ -244,7 +343,10 @@ async function startBot() {
       offset = update.update_id + 1;
 
       const message = update.message;
-      if (!message) continue;
+
+      if (!message) {
+        continue;
+      }
 
       if (message.web_app_data?.data) {
         await handleMiniAppOrder(message);
@@ -254,7 +356,9 @@ async function startBot() {
       const chatId = message.chat.id;
       const text = message.text;
 
-      if (!text) continue;
+      if (!text) {
+        continue;
+      }
 
       console.log("New message:", text);
 
