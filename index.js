@@ -7,6 +7,7 @@ const OpenAI = require("openai");
 const app = express();
 
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN);
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -18,13 +19,18 @@ const MINI_APP_URL = "https://mmmm.a0957991795.workers.dev";
 const managerChatId = process.env.MANAGER_CHAT_ID;
 const sheetsWebhook = process.env.SHEETS_WEBHOOK_URL;
 
-function keyboard() {
+function keyboard(lang = "ua") {
+  const text =
+    lang === "ru"
+      ? "🧹 Рассчитать стоимость и оставить заявку"
+      : "🧹 Розрахувати вартість та залишити заявку";
+
   return {
     reply_markup: {
       keyboard: [
         [
           {
-            text: "🧹 Розрахувати вартість та залишити заявку",
+            text,
             web_app: {
               url: MINI_APP_URL,
             },
@@ -37,23 +43,49 @@ function keyboard() {
   };
 }
 
-async function askAI(message) {
+function detectLanguage(text = "") {
+  const ruLetters = /[ыэъё]/i.test(text);
+
+  if (ruLetters) return "ru";
+
+  return "ua";
+}
+
+async function askAI(message, lang = "ua") {
   try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.5,
-      messages: [
-        {
-          role: "system",
-          content: `
+    const systemPrompt =
+      lang === "ru"
+        ? `
+Ты AI-консультант клининговой компании Premium Cleaning.
+
+Отвечай ТОЛЬКО на русском языке.
+
+Услуги:
+- генеральная уборка;
+- поддерживающая уборка;
+- уборка после ремонта;
+- мойка окон;
+- химчистка мебели;
+- уборка кухни;
+- чистка духовки;
+- чистка холодильника.
+
+Твоя задача:
+- консультировать клиента;
+- помогать выбрать услугу;
+- предлагать нажать кнопку:
+"🧹 Рассчитать стоимость и оставить заявку"
+
+Важно:
+- стоимость в калькуляторе примерная;
+- точную цену подтверждает менеджер после уточнения деталей.
+`
+        : `
 Ти AI-консультант клінінгової компанії Premium Cleaning.
 
-ПРАВИЛА МОВИ:
-- Якщо клієнт пише українською — відповідай українською.
-- Якщо клієнт пише російською — відповідай російською.
-- Не змішуй мови.
+Відповідай ТІЛЬКИ українською мовою.
 
-ПОСЛУГИ:
+Послуги:
 - генеральне прибирання;
 - підтримуюче прибирання;
 - прибирання після ремонту;
@@ -63,16 +95,24 @@ async function askAI(message) {
 - чистка духовки;
 - чистка холодильника.
 
-ТВОЄ ЗАВДАННЯ:
+Твоє завдання:
 - консультувати клієнта;
 - допомагати вибрати послугу;
-- якщо клієнт хоче розрахунок або заявку — кажи натиснути кнопку:
+- пропонувати натиснути кнопку:
 "🧹 Розрахувати вартість та залишити заявку"
 
-ВАЖЛИВО:
-- ціна в калькуляторі приблизна;
-- точну вартість підтверджує менеджер після уточнення деталей або оцінки об'єкта.
-`,
+Важливо:
+- вартість у калькуляторі приблизна;
+- точну ціну підтверджує менеджер після уточнення деталей.
+`;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.5,
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt,
         },
         {
           role: "user",
@@ -84,7 +124,10 @@ async function askAI(message) {
     return completion.choices[0].message.content;
   } catch (e) {
     console.log(e);
-    return "Тимчасова помилка. Спробуйте пізніше.";
+
+    return lang === "ru"
+      ? "Временная ошибка. Попробуйте позже."
+      : "Тимчасова помилка. Спробуйте пізніше.";
   }
 }
 
@@ -106,20 +149,22 @@ bot.onText(/\/start/, async (msg) => {
 🧹 Розрахувати вартість та залишити заявку
 
 ⚠️ Вартість у калькуляторі приблизна.
-Точну ціну підтверджує менеджер після уточнення деталей або оцінки об'єкта.
+Точну ціну підтверджує менеджер після уточнення деталей.
 `;
 
-  bot.sendMessage(chatId, welcomeText, keyboard());
+  bot.sendMessage(chatId, welcomeText, keyboard("ua"));
 });
 
 bot.on("message", async (msg) => {
   try {
-    if (!msg.text) return;
+    if (!msg.text && !msg.web_app_data) return;
 
     if (msg.text === "/start") return;
 
     if (msg.web_app_data) {
       const data = JSON.parse(msg.web_app_data.data);
+
+      const lang = data.lang || "ua";
 
       const managerText = `
 🔥 Нова заявка з Mini App
@@ -142,8 +187,10 @@ ${data.extras.length ? data.extras.join(", ") : "Немає"}
 💬 Коментар:
 ${data.comment || "-"}
 
+🌐 Мова клієнта: ${lang}
+
 ⚠️ Ціна приблизна.
-Точну вартість підтверджує менеджер після уточнення деталей або оцінки об'єкта.
+Точну вартість підтверджує менеджер після уточнення деталей.
 `;
 
       if (managerChatId) {
@@ -164,25 +211,44 @@ ${data.comment || "-"}
         }
       }
 
-      await bot.sendMessage(
-        msg.chat.id,
-        `
-✅ Дякуємо! Вашу заявку прийнято.
+      const clientMessage =
+        lang === "ru"
+          ? `
+✅ Спасибо! Ваша заявка отправлена менеджеру.
 
-Менеджер скоро зв'яжеться з вами.
+Скоро с вами свяжутся.
+
+⚠️ Стоимость в калькуляторе примерная.
+Точную цену подтверждает менеджер после уточнения деталей или оценки объекта.
+`
+          : `
+✅ Дякуємо! Вашу заявку відправлено менеджеру.
+
+Незабаром з вами зв'яжуться.
 
 ⚠️ Вартість у калькуляторі приблизна.
 Точну ціну підтверджує менеджер після уточнення деталей або оцінки об'єкта.
-`,
-        keyboard()
+`;
+
+      await bot.sendMessage(
+        msg.chat.id,
+        clientMessage,
+        keyboard(lang)
       );
 
       return;
     }
 
-    const reply = await askAI(msg.text);
+    const lang = detectLanguage(msg.text);
 
-    bot.sendMessage(msg.chat.id, reply, keyboard());
+    const reply = await askAI(msg.text, lang);
+
+    bot.sendMessage(
+      msg.chat.id,
+      reply,
+      keyboard(lang)
+    );
+
   } catch (e) {
     console.log(e);
   }
