@@ -4,68 +4,9 @@ const MANAGER_CHAT_ID = process.env.MANAGER_CHAT_ID;
 const SHEETS_WEBHOOK_URL = process.env.SHEETS_WEBHOOK_URL;
 
 const MINI_APP_URL = "https://mmmm.a0957991795.workers.dev";
-
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
 
 let offset = 0;
-
-// =====================
-// CHECK VARIABLES
-// =====================
-
-function checkVariables() {
-  if (!TELEGRAM_BOT_TOKEN) {
-    console.error("ERROR: TELEGRAM_BOT_TOKEN is missing");
-  }
-
-  if (!OPENAI_API_KEY) {
-    console.error("ERROR: OPENAI_API_KEY is missing");
-  }
-
-  if (!MANAGER_CHAT_ID) {
-    console.error("ERROR: MANAGER_CHAT_ID is missing");
-  }
-
-  if (!SHEETS_WEBHOOK_URL) {
-    console.error("ERROR: SHEETS_WEBHOOK_URL is missing");
-  }
-}
-
-// =====================
-// TELEGRAM SEND MESSAGE
-// =====================
-
-async function sendMessage(chatId, text, extra = {}) {
-  try {
-    const response = await fetch(`${TELEGRAM_API}/sendMessage`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: "HTML",
-        ...extra,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!data.ok) {
-      console.error("Telegram sendMessage error:", data);
-    }
-
-    return data;
-  } catch (error) {
-    console.error("sendMessage error:", error.message);
-    return null;
-  }
-}
-
-// =====================
-// BIG MINI APP BUTTON
-// =====================
 
 function getMiniAppKeyboard() {
   return {
@@ -84,13 +25,34 @@ function getMiniAppKeyboard() {
   };
 }
 
-// =====================
-// SAVE TO GOOGLE SHEETS
-// =====================
+async function sendMessage(chatId, text, extra = {}) {
+  try {
+    const response = await fetch(`${TELEGRAM_API}/sendMessage`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: "HTML",
+        ...extra,
+      }),
+    });
+
+    const data = await response.json();
+    console.log("sendMessage response:", data);
+
+    return data;
+  } catch (error) {
+    console.error("sendMessage error:", error.message);
+    return null;
+  }
+}
 
 async function saveToGoogleSheets(order) {
   if (!SHEETS_WEBHOOK_URL) {
-    console.error("SHEETS_WEBHOOK_URL is missing. Lead was not saved.");
+    console.error("SHEETS_WEBHOOK_URL is missing");
     return;
   }
 
@@ -112,13 +74,30 @@ async function saveToGoogleSheets(order) {
   }
 }
 
-// =====================
-// AI RESPONSE
-// =====================
+function buildManagerMessage(order) {
+  return `
+🔥 <b>Новая заявка из Mini App</b>
+
+🧹 <b>Услуга:</b> ${order.service || "не указано"}
+📐 <b>Площадь:</b> ${order.area || "не указано"} м²
+➕ <b>Доп. услуги:</b> ${order.extras?.length ? order.extras.join(", ") : "нет"}
+💰 <b>Примерная цена:</b> ${order.price || "не указано"} грн
+
+👤 <b>Имя:</b> ${order.name || "не указано"}
+📞 <b>Телефон:</b> ${order.phone || "не указано"}
+📍 <b>Адрес:</b> ${order.address || "не указано"}
+🕒 <b>Время:</b> ${order.time || "не указано"}
+💬 <b>Комментарий:</b> ${order.comment || "нет"}
+
+⚠️ <b>Важно:</b> ${order.note || "Стоимость примерная. Точная цена рассчитывается менеджером после уточнения деталей и осмотра объекта."}
+
+Источник: Telegram Mini App
+`;
+}
 
 async function getAIResponse(userMessage) {
   if (!OPENAI_API_KEY) {
-    return "OpenAI API ключ не подключён. Проверьте переменную OPENAI_API_KEY в Railway.";
+    return "OpenAI API ключ не подключён.";
   }
 
   try {
@@ -137,40 +116,15 @@ async function getAIResponse(userMessage) {
 Ты AI-консультант клининговой компании Premium Cleaning.
 
 Твоя задача:
-- консультировать клиентов по услугам клининга;
-- отвечать вежливо, кратко и понятно;
+- консультировать клиентов;
 - помогать выбрать услугу;
-- собирать заявки;
-- если клиент хочет рассчитать стоимость или оформить заявку — скажи ему нажать большую кнопку внизу чата: "🧹 Рассчитать стоимость и оставить заявку".
+- если клиент хочет цену или заявку — направляй его нажать кнопку "🧹 Рассчитать стоимость и оставить заявку".
 
-Услуги компании:
-- генеральная уборка;
-- уборка после ремонта;
-- поддерживающая уборка;
-- химчистка мебели;
-- мытьё окон.
-
-Для заявки нужны:
-- имя;
-- телефон;
-- услуга;
-- адрес;
-- удобное время.
-
-Правила:
-- не придумывай точные цены;
-- говори, что примерная стоимость есть в Mini App;
-- точную цену подтверждает менеджер;
-- если клиент пишет непонятно, спокойно уточни вопрос;
-- не груби;
-- не спорь;
-- не обещай невозможное.
-
-Стиль:
-- дружелюбно;
-- уверенно;
-- без давления;
-- простыми словами.
+Важно:
+- стоимость в Mini App примерная;
+- точную стоимость подтверждает менеджер после уточнения деталей и осмотра объекта;
+- не обещай фиксированную цену;
+- отвечай коротко, понятно и вежливо.
 `,
           },
           {
@@ -186,19 +140,15 @@ async function getAIResponse(userMessage) {
 
     if (!response.ok) {
       console.error("OpenAI API error:", data);
-      return "Сейчас временная ошибка AI. Попробуйте написать ещё раз через минуту.";
+      return "Сейчас временная ошибка AI. Попробуйте написать позже.";
     }
 
-    return data.choices?.[0]?.message?.content || "Не удалось получить ответ AI.";
+    return data.choices?.[0]?.message?.content || "Не удалось получить ответ.";
   } catch (error) {
     console.error("OpenAI error:", error.message);
-    return "Сейчас временная ошибка AI. Попробуйте написать ещё раз через минуту.";
+    return "Сейчас временная ошибка AI. Попробуйте написать позже.";
   }
 }
-
-// =====================
-// START MESSAGE
-// =====================
 
 async function sendStartMessage(chatId) {
   const text = `
@@ -206,25 +156,22 @@ async function sendStartMessage(chatId) {
 
 Я AI-консультант Premium Cleaning.
 
-Я могу:
-— подсказать по услугам;
-— помочь выбрать уборку;
+Вы можете:
+— задать вопрос по услугам;
 — рассчитать примерную стоимость;
-— оформить заявку менеджеру.
+— оставить заявку менеджеру.
 
-Чтобы рассчитать стоимость и оставить заявку, нажмите большую кнопку внизу:
+Нажмите большую кнопку внизу:
 
 🧹 <b>Рассчитать стоимость и оставить заявку</b>
+
+⚠️ Стоимость в калькуляторе примерная. Точную цену подтверждает менеджер после уточнения деталей.
 `;
 
   await sendMessage(chatId, text, {
     reply_markup: getMiniAppKeyboard(),
   });
 }
-
-// =====================
-// HANDLE MINI APP ORDER
-// =====================
 
 async function handleMiniAppOrder(message) {
   try {
@@ -233,70 +180,36 @@ async function handleMiniAppOrder(message) {
     console.log("Mini App raw data:", rawData);
 
     if (!rawData) {
-      await sendMessage(message.chat.id, "Заявка пустая. Попробуйте отправить ещё раз.");
+      await sendMessage(message.chat.id, "Заявка пустая. Попробуйте ещё раз.");
       return;
     }
 
     const order = JSON.parse(rawData);
 
-    const orderForSheets = {
-      name: order.name || "",
-      phone: order.phone || "",
-      service: order.service || "",
-      area: order.area || "",
-      extras: Array.isArray(order.extras) ? order.extras : [],
-      address: order.address || "",
-      time: order.time || "",
-      comment: order.comment || "",
-      price: order.price || "",
-      source: "Telegram Mini App",
-      status: "Новая",
-    };
+    const managerText = buildManagerMessage(order);
 
-    const managerText = `
-🔥 <b>Новая заявка из Mini App</b>
-
-🧹 <b>Услуга:</b> ${orderForSheets.service || "не указано"}
-📐 <b>Площадь:</b> ${orderForSheets.area || "не указано"} м²
-➕ <b>Доп. услуги:</b> ${
-      orderForSheets.extras.length ? orderForSheets.extras.join(", ") : "нет"
-    }
-💰 <b>Примерная цена:</b> ${orderForSheets.price || "не указано"} грн
-
-👤 <b>Имя:</b> ${orderForSheets.name || "не указано"}
-📞 <b>Телефон:</b> ${orderForSheets.phone || "не указано"}
-📍 <b>Адрес:</b> ${orderForSheets.address || "не указано"}
-🕒 <b>Время:</b> ${orderForSheets.time || "не указано"}
-💬 <b>Комментарий:</b> ${orderForSheets.comment || "нет"}
-
-Источник: Telegram Mini App
-`;
-
-    if (MANAGER_CHAT_ID) {
-      await sendMessage(MANAGER_CHAT_ID, managerText);
+    if (!MANAGER_CHAT_ID) {
+      console.error("MANAGER_CHAT_ID is missing");
     } else {
-      console.error("MANAGER_CHAT_ID is missing. Lead was not sent to manager.");
+      const managerResult = await sendMessage(MANAGER_CHAT_ID, managerText);
+      console.log("Manager send result:", managerResult);
     }
 
-    await saveToGoogleSheets(orderForSheets);
+    await saveToGoogleSheets(order);
 
     await sendMessage(
       message.chat.id,
       "✅ Спасибо! Ваша заявка отправлена менеджеру. Скоро с вами свяжутся."
     );
   } catch (error) {
-    console.error("Mini App order processing error:", error.message);
+    console.error("Mini App order error:", error.message);
 
     await sendMessage(
       message.chat.id,
-      "❌ Не удалось обработать заявку. Проверьте поля и попробуйте отправить ещё раз."
+      "❌ Не удалось обработать заявку. Попробуйте отправить ещё раз."
     );
   }
 }
-
-// =====================
-// GET UPDATES
-// =====================
 
 async function getUpdates() {
   try {
@@ -318,15 +231,11 @@ async function getUpdates() {
   }
 }
 
-// =====================
-// MAIN LOOP
-// =====================
-
 async function startBot() {
   console.log("Bot started");
-  console.log("Mini App URL:", MINI_APP_URL);
-
-  checkVariables();
+  console.log("MANAGER_CHAT_ID:", MANAGER_CHAT_ID);
+  console.log("SHEETS_WEBHOOK_URL:", SHEETS_WEBHOOK_URL);
+  console.log("MINI_APP_URL:", MINI_APP_URL);
 
   while (true) {
     const updates = await getUpdates();
@@ -335,10 +244,7 @@ async function startBot() {
       offset = update.update_id + 1;
 
       const message = update.message;
-
-      if (!message) {
-        continue;
-      }
+      if (!message) continue;
 
       if (message.web_app_data?.data) {
         await handleMiniAppOrder(message);
@@ -348,9 +254,7 @@ async function startBot() {
       const chatId = message.chat.id;
       const text = message.text;
 
-      if (!text) {
-        continue;
-      }
+      if (!text) continue;
 
       console.log("New message:", text);
 
