@@ -8,21 +8,13 @@ const SHEETS_WEBHOOK_URL = process.env.SHEETS_WEBHOOK_URL;
 
 const MINI_APP_URL = "https://mmmm.a0957991795.workers.dev";
 
-const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, {
-  polling: true
-});
-
 const openai = new OpenAI({
   apiKey: OPENAI_API_KEY
 });
 
-function detectLanguage(text = "") {
-  if (/[ыэёъ]/i.test(text)) {
-    return "ru";
-  }
-
-  return "ua";
-}
+const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, {
+  polling: false
+});
 
 function getKeyboard(lang = "ua") {
   return {
@@ -44,6 +36,11 @@ function getKeyboard(lang = "ua") {
       persistent: true
     }
   };
+}
+
+function detectLanguage(text = "") {
+  if (/[ыэёъ]/i.test(text)) return "ru";
+  return "ua";
 }
 
 function getWelcomeText() {
@@ -100,9 +97,23 @@ async function sendToGoogleSheets(data) {
       body: JSON.stringify(data)
     });
   } catch (error) {
-    console.log(error.message);
+    console.log("Google Sheets error:", error.message);
   }
 }
+
+async function startBot() {
+  await bot.deleteWebHook({
+    drop_pending_updates: true
+  });
+
+  bot.startPolling();
+
+  console.log("Bot started with polling");
+}
+
+bot.on("polling_error", (error) => {
+  console.log("Polling error:", error.message);
+});
 
 bot.onText(/\/start/, async (msg) => {
   await bot.sendMessage(
@@ -114,13 +125,10 @@ bot.onText(/\/start/, async (msg) => {
 
 bot.on("message", async (msg) => {
   try {
-    if (msg.text === "/start") {
-      return;
-    }
+    if (msg.text === "/start") return;
 
     if (msg.web_app_data && msg.web_app_data.data) {
       const data = JSON.parse(msg.web_app_data.data);
-
       const lang = data.lang || "ua";
 
       const managerText = `
@@ -130,9 +138,7 @@ bot.on("message", async (msg) => {
 📐 Площа: ${data.area || "-"} м²
 
 ➕ Додаткові послуги:
-${data.extras && data.extras.length
-  ? data.extras.join(", ")
-  : "Немає"}
+${data.extras && data.extras.length ? data.extras.join(", ") : "Немає"}
 
 💰 Орієнтовна ціна: ${data.price || "-"} грн
 
@@ -151,10 +157,7 @@ ${data.comment || "Без коментаря"}
 `;
 
       if (MANAGER_CHAT_ID) {
-        await bot.sendMessage(
-          MANAGER_CHAT_ID,
-          managerText
-        );
+        await bot.sendMessage(MANAGER_CHAT_ID, managerText);
       }
 
       await sendToGoogleSheets(data);
@@ -176,54 +179,31 @@ ${data.comment || "Без коментаря"}
       lang === "ru"
         ? `
 Ты AI-консультант Premium Cleaning.
-
 Отвечай только на русском языке.
-
-Услуги:
-- генеральная уборка
-- поддерживающая уборка
-- уборка после ремонта
-- мойка окон
-- химчистка мебели
-
-Если клиент хочет оставить заявку —
-предложи нажать кнопку снизу.
-
-Стоимость в калькуляторе примерная.
+Если клиент хочет заявку — предложи нажать кнопку снизу.
+Стоимость примерная. Точную цену подтверждает менеджер.
 `
         : `
 Ти AI-консультант Premium Cleaning.
-
 Відповідай тільки українською мовою.
-
-Послуги:
-- генеральне прибирання
-- підтримуюче прибирання
-- прибирання після ремонту
-- миття вікон
-- хімчистка меблів
-
-Якщо клієнт хоче залишити заявку —
-запропонуй натиснути кнопку знизу.
-
-Вартість у калькуляторі приблизна.
+Якщо клієнт хоче заявку — запропонуй натиснути кнопку знизу.
+Вартість приблизна. Точну ціну підтверджує менеджер.
 `;
 
-    const completion =
-      await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        temperature: 0.5,
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt
-          },
-          {
-            role: "user",
-            content: msg.text
-          }
-        ]
-      });
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.5,
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt
+        },
+        {
+          role: "user",
+          content: msg.text
+        }
+      ]
+    });
 
     await bot.sendMessage(
       msg.chat.id,
@@ -231,8 +211,8 @@ ${data.comment || "Без коментаря"}
       getKeyboard(lang)
     );
   } catch (error) {
-    console.log(error.message);
+    console.log("Bot error:", error.message);
   }
 });
 
-console.log("Bot started");
+startBot();
