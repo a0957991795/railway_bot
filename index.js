@@ -12,7 +12,7 @@ const bot = new TelegramBot(TOKEN, {
   polling: true
 });
 
-const miniAppUrl = "https://ТВОЙ-URL.workers.dev";
+const miniAppUrl = "https://mmmm.a0957991795.workers.dev";
 
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
@@ -82,6 +82,7 @@ ${data.comment || "Немає"}
     );
 
     res.sendStatus(200);
+
   } catch (error) {
     console.log(error);
     res.sendStatus(500);
